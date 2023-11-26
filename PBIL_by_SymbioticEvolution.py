@@ -4,41 +4,59 @@ import numpy as np
 WPOP_SIZE = 400
 PPOP_SIZE = 400
 MAX_GENERATION = 1000
-WCROSSOVER_PROB = 0.9
-PCROSSOVER_PROB = 0.99
-WMUTATE_PROB = 0.1
+WCROSSOVER_PROB = 0.3
+PCROSSOVER_PROB = 0.9
+WMUTATE_PROB = 0.07
 WCHROM_LEN = 10
 PCHROM_LEN = 10
+DISTRIBUTION_PROB = 0.1
+ALPHA = 0.5
+effective_observation = 20
 
 # 部分解個体
 class PartialIndividual:
+    _id_counter = 0  # クラス変数としてIDカウンターを追加
+
     def __init__(self):
+        self.id = PartialIndividual._id_counter  # 各インスタンスに一意のIDを割り当てる
+        PartialIndividual._id_counter += 1  # IDカウンターをインクリメント
         self.chrom = np.random.randint(0, 2, PCHROM_LEN)
         self.fitness = 1000000
+
 
 # 部分解集団
 class PartialPopulation:
     def __init__(self):
         self.population = []
-        self.prob_vector = np.full(PCHROM_LEN, 0.5)
+        self.prob_vectors = [np.full(PCHROM_LEN, 0.5) for _ in range(WCHROM_LEN)]
         for i in range(PPOP_SIZE):
             individual = PartialIndividual()
             self.population.append(individual)
-    
-    def update_prob_vector(self, alpha):
-        top_individuals = self.population[:int(PPOP_SIZE * 0.3)]
-        for i in range(PCHROM_LEN):
-            avg_bit = np.mean([ind.chrom[i] for ind in top_individuals])
-            self.prob_vector[i] = (1 - alpha) * self.prob_vector[i] + alpha * avg_bit
 
-    def sample_new_population(self, crossover_prob):
+    def update_prob_vectors(self, alpha, whole_population):
+        # 全体解集団の上位30%から確率ベクトルを更新
+        top_individuals = whole_population.population[:int(WPOP_SIZE * DISTRIBUTION_PROB)]
+        for i in range(WCHROM_LEN):
+            for j in range(PCHROM_LEN):
+                avg_bit = np.mean([ind.chrom[i].chrom[j] for ind in top_individuals])
+                self.prob_vectors[i][j] = (1 - alpha) * self.prob_vectors[i][j] + alpha * avg_bit
+
+    def sample_new_population(self, crossover_prob, whole_population):
         num_new_individuals = int(PPOP_SIZE * crossover_prob)
-        new_individuals = []
-        for _ in range(num_new_individuals):
-            new_individual = PartialIndividual()
-            new_individual.chrom = np.array([1 if np.random.rand() < p else 0 for p in self.prob_vector])
-            new_individuals.append(new_individual)
-        self.population[-num_new_individuals:] = new_individuals
+        gene_usage_counts = np.zeros((PPOP_SIZE, WCHROM_LEN))
+        for whole_ind in whole_population.population:
+            for gene_index, part_ind in enumerate(whole_ind.chrom):
+                gene_usage_counts[part_ind.id][gene_index] += 1
+
+        individuals_to_update = self.population[-num_new_individuals:]
+
+        for ind in individuals_to_update:
+            posterior_probs = np.random.dirichlet(gene_usage_counts[ind.id] + effective_observation)
+            selected_whole_gene_indices = np.random.choice(range(WCHROM_LEN), size=WCHROM_LEN, p=posterior_probs)
+            selected_whole_gene_index = np.argmax(np.bincount(selected_whole_gene_indices))
+
+            for gene_index in range(PCHROM_LEN):
+                ind.chrom[gene_index] = 1 if np.random.rand() < whole_population.prob_vectors[selected_whole_gene_index][gene_index] else 0
 
     def evainit(self):
         for i in range(PPOP_SIZE):
@@ -76,15 +94,15 @@ class WholeIndividual:
 class WholePopulation:
     def __init__(self):
         self.population = []
+        self.prob_vectors = [np.full(PCHROM_LEN, 0.5) for _ in range(WCHROM_LEN)]
         for i in range(WPOP_SIZE):
             individual = WholeIndividual()
             self.population.append(individual)
     
     def crossover(self):
         for i in range(int(WPOP_SIZE * (1 - WCROSSOVER_PROB)), WPOP_SIZE):
-            # 二点交叉
-            parent1 = np.random.randint(0, int(WPOP_SIZE/4))
-            parent2 = np.random.randint(0, int(WPOP_SIZE/4))
+            parent1 = np.random.randint(0, int(WPOP_SIZE/8))
+            parent2 = np.random.randint(0, int(WPOP_SIZE/8))
             index1 = np.random.randint(0, WCHROM_LEN)
             index2 = np.random.randint(0, WCHROM_LEN)
             self.population[i].crossover(self.population[parent1], self.population[parent2], index1, index2)
@@ -93,24 +111,24 @@ class WholePopulation:
         for i in range(WPOP_SIZE):
             self.population[i].fitness = 1000000
 
-# floyd問題
-def evaluate_fitness():
+# 適応度評価
+def evaluate_fitness(whole_population):
     for i in range(WPOP_SIZE):
         fitness = 0.0
         for j in range(WCHROM_LEN):
             for k in range(PCHROM_LEN):
-                fitness += (wpop.population[i].chrom[j].chrom[k] * 2 - 1) * np.sqrt(j*PCHROM_LEN+k+1)
-        wpop.population[i].fitness = np.abs(fitness)
+                fitness += (whole_population.population[i].chrom[j].chrom[k] * 2 - 1) * np.sqrt(j*PCHROM_LEN+k+1)
+        whole_population.population[i].fitness = np.abs(fitness)
         for j in range(WCHROM_LEN):
-            if wpop.population[i].chrom[j].fitness > wpop.population[i].fitness:
-                wpop.population[i].chrom[j].fitness = wpop.population[i].fitness
+            if whole_population.population[i].chrom[j].fitness > whole_population.population[i].fitness:
+                whole_population.population[i].chrom[j].fitness = whole_population.population[i].fitness
     ppop.population.sort(key=lambda individual: individual.fitness)
-    wpop.population.sort(key=lambda individual: individual.fitness)
+    whole_population.population.sort(key=lambda individual: individual.fitness)
 
 # 初期化
 ppop = PartialPopulation()
 wpop = WholePopulation()
-evaluate_fitness()
+evaluate_fitness(wpop)
 
 best = []
 
@@ -120,10 +138,10 @@ for i in range(MAX_GENERATION):
     best.append(wpop.population[0].fitness)
 
     # PBIL: 確率分布の更新
-    ppop.update_prob_vector(alpha=0.001)
+    ppop.update_prob_vectors(alpha=ALPHA, whole_population=wpop)
 
     # PBIL: 新しい個体のサンプリング
-    ppop.sample_new_population(crossover_prob=PCROSSOVER_PROB)
+    ppop.sample_new_population(crossover_prob=PCROSSOVER_PROB, whole_population=wpop)
 
     # 全体解集団の交叉
     wpop.crossover()
@@ -133,4 +151,4 @@ for i in range(MAX_GENERATION):
     wpop.evainit()
 
     # 適応度算出
-    evaluate_fitness()
+    evaluate_fitness(wpop)
