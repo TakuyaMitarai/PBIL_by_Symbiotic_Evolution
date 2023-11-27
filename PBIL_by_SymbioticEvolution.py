@@ -1,17 +1,17 @@
 import numpy as np
 
 # ハイパーパラメータ
-WPOP_SIZE = 400
-PPOP_SIZE = 400
-MAX_GENERATION = 1000
-WCROSSOVER_PROB = 0.3
+WPOP_SIZE = 200
+PPOP_SIZE = 200
+MAX_GENERATION = 400
+WCROSSOVER_PROB = 0.7607382299812424
 PCROSSOVER_PROB = 0.9
-WMUTATE_PROB = 0.07
+WMUTATE_PROB = 0.17719745536180487
 WCHROM_LEN = 10
 PCHROM_LEN = 10
-DISTRIBUTION_PROB = 0.1
-ALPHA = 0.5
-effective_observation = 20
+DISTRIBUTION_PROB = 0.3837326423529911
+ALPHA = 0.06541779725405797
+effective_observation = 76.0
 
 # 部分解個体
 class PartialIndividual:
@@ -52,8 +52,7 @@ class PartialPopulation:
 
         for ind in individuals_to_update:
             posterior_probs = np.random.dirichlet(gene_usage_counts[ind.id] + effective_observation)
-            selected_whole_gene_indices = np.random.choice(range(WCHROM_LEN), size=WCHROM_LEN, p=posterior_probs)
-            selected_whole_gene_index = np.argmax(np.bincount(selected_whole_gene_indices))
+            selected_whole_gene_index = np.argmax(posterior_probs)
 
             for gene_index in range(PCHROM_LEN):
                 ind.chrom[gene_index] = 1 if np.random.rand() < whole_population.prob_vectors[selected_whole_gene_index][gene_index] else 0
